@@ -1067,8 +1067,9 @@ function renderFinance(){
           <div class="cat-label">管理</div>
         </div>
       </div>
-      <button class="bill-ocr-btn" onclick="openOCRFinance()">📸 截图智能记账</button>
-      <button class="btn btn-o btn-block" style="margin-top:8px;font-size:0.8rem" onclick="openCSVImport()">📥 导入 CSV 账单</button>
+      <button class="bill-ocr-btn" onclick="openOCRFinance('gallery')">🖼 相册截图记账</button>
+      <button class="bill-ocr-btn" style="background:var(--sky-light);color:var(--info);margin-top:6px" onclick="openOCRFinance('camera')">📸 拍照记账</button>
+      <button class="btn btn-o btn-block" style="margin-top:8px;font-size:0.8rem" onclick="openCSVImport()">📥 导入 CSV/Excel 账单</button>
     </div>
     ${renderTxnList()}
   `;
@@ -1440,12 +1441,12 @@ function getIncomeSourceLabel(txType, counterparty){
 
 function openCSVImport(){
   showModal(`
-    <h3>📥 导入微信支付CSV账单</h3>
+    <h3>📥 导入微信支付账单</h3>
     <p class="text-xs text-muted mb-2">
-      支持微信支付官方导出的CSV账单格式<br>
+      支持 CSV / Excel(.xlsx) 格式<br>
       自动识别分类 · 过滤中性流水 · 可手动修改
     </p>
-    <input type="file" accept=".csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" id="csvFile" class="inp">
+    <input type="file" accept=".csv,.xlsx,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" id="csvFile" class="inp">
     <div id="csvPreview" class="mt-2" style="max-height:50vh;overflow-y:auto"></div>
   `, ()=>{
     $('csvFile').addEventListener('change', handleCSVFile);
@@ -1454,154 +1455,177 @@ function openCSVImport(){
 
 function handleCSVFile(e){
   const file = e.target.files[0]; if(!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+  
+  if(ext === 'xlsx'){
+    handleXLSXFile(file);
+    return;
+  }
+  
+  // CSV 解析
   const reader = new FileReader();
   reader.onload = function(ev){
     try{
       let text = ev.target.result;
-      // 去除 UTF-8 BOM（微信支付CSV可能带BOM头）
       if(text.charCodeAt(0) === 0xFEFF) text = text.substring(1);
-      // 检测是否为微信支付CSV格式（查找特征分隔符或关键列名）
-      const isWeChat = text.includes('微信支付账单明细') || text.includes('微信支付账单明细列表') || (text.includes('交易时间') && text.includes('交易类型') && text.includes('交易对方'));
-      
-      const lines = text.split(/\r?\n/);
-      let dataStartIdx = 0;
-      let headers = [];
-      
-      if(isWeChat){
-        // 微信支付CSV：找到表头分隔线之后的内容
-        for(let i=0; i<lines.length; i++){
-          if(lines[i].includes('微信支付账单明细列表') || lines[i].includes('交易时间,交易类型')){
-            // 下一行通常是表头
-            if(lines[i].includes('交易时间,交易类型')){
-              dataStartIdx = i + 1;
-              headers = lines[i].split(',').map(h=>h.trim());
-            } else {
-              // 分隔线模式：下一行是表头
-              dataStartIdx = i + 2;
-              if(i+1 < lines.length){
-                headers = lines[i+1].split(',').map(h=>h.trim());
-              }
-            }
-            break;
-          }
-        }
-      } else {
-        // 通用CSV：第一行作为表头
-        headers = lines[0].split(',').map(h=>h.trim());
-        dataStartIdx = 1;
-      }
-      
-      if(!headers.length || dataStartIdx >= lines.length){
-        toast('⚠️ 无法识别CSV格式，请使用微信支付官方导出的账单');
-        return;
-      }
-      
-      // 列索引映射
-      const colIdx = {
-        time: headers.findIndex(h=>h.includes('交易时间')||h.includes('时间')||h.includes('日期')),
-        type: headers.findIndex(h=>h.includes('交易类型')||h.includes('类型')),
-        counterparty: headers.findIndex(h=>h.includes('交易对方')||h.includes('对方')),
-        product: headers.findIndex(h=>h.includes('商品')||h.includes('说明')),
-        direction: headers.findIndex(h=>h.includes('收/支')||h.includes('收支')),
-        amount: headers.findIndex(h=>h.includes('金额')),
-        method: headers.findIndex(h=>h.includes('支付方式')),
-        status: headers.findIndex(h=>h.includes('状态')),
-        note: headers.findIndex(h=>h.includes('备注'))
-      };
-      
-      // 如果没有收/支列，尝试从交易类型判断
-      if(colIdx.direction < 0 && colIdx.type >= 0){
-        // 通过交易类型列来判断收入/支出
-        colIdx.direction = colIdx.type; // 复用类型列
-      }
-      
-      const parsedRecords = [];
-      const skippedNeutral = [];
-      
-      for(let i=dataStartIdx; i<lines.length; i++){
-        const line = lines[i].trim();
-        if(!line) continue;
-        
-        // CSV解析（处理引号内的逗号）
-        const cols = parseCSVLine(line);
-        if(cols.length < 3) continue;
-        
-        // 提取字段
-        const time = colIdx.time>=0 ? (cols[colIdx.time]||'').trim() : '';
-        const txType = colIdx.type>=0 ? (cols[colIdx.type]||'').trim() : '';
-        const counterparty = colIdx.counterparty>=0 ? (cols[colIdx.counterparty]||'').trim() : '';
-        const product = colIdx.product>=0 ? (cols[colIdx.product]||'').trim() : '';
-        const direction = colIdx.direction>=0 ? (cols[colIdx.direction]||'').trim() : '';
-        const amountRaw = colIdx.amount>=0 ? (cols[colIdx.amount]||'').trim() : '';
-        const method = colIdx.method>=0 ? (cols[colIdx.method]||'').trim() : '';
-        const status = colIdx.status>=0 ? (cols[colIdx.status]||'').trim() : '';
-        const note = colIdx.note>=0 ? (cols[colIdx.note]||'').trim() : '';
-        
-        const amount = parseCSVAmount(amountRaw);
-        if(!amount || !time) continue;
-        
-        // 判断收支方向
-        let isExpense;
-        if(direction === '支出'){
-          isExpense = true;
-        } else if(direction === '收入'){
-          isExpense = false;
-        } else if(txType === '微信红包' || txType.includes('退款')){
-          isExpense = false;
-        } else {
-          // 默认：商户消费/其他支出类 → 支出
-          isExpense = !(txType.includes('收入') || txType.includes('退款'));
-        }
-        
-        // 中性交易检测（支出方向的转账视为中性，收入方向的转账保留）
-        if(isNeutralTransaction(txType, counterparty, product, note, isExpense)){
-          skippedNeutral.push({time, txType, counterparty, amount, isExpense});
-          continue;
-        }
-        
-        // 自动分类
-        let category;
-        if(isExpense){
-          category = matchExpenseCategory(txType, counterparty, product, note);
-        } else {
-          category = matchIncomeCategory(txType, counterparty, product, note);
-        }
-        
-        // 生成备注
-        let displayNote = product && product !== '/' ? product : (note && note !== '/' ? note : '');
-        if(!displayNote && counterparty) displayNote = counterparty;
-        
-        parsedRecords.push({
-          date: time.substring(0,10), // 只取日期部分
-          fullTime: time,
-          type: isExpense ? 'expense' : 'income',
-          category: category,
-          amount: amount,
-          counterparty: counterparty,
-          txType: txType,
-          note: displayNote,
-          method: method,
-          incomeSource: !isExpense ? getIncomeSourceLabel(txType, counterparty) : '',
-          _raw: {time, txType, counterparty, product, direction, amountRaw, method, status, note}
-        });
-      }
-      
-      if(parsedRecords.length === 0){
-        toast('⚠️ 没有可导入的有效交易记录');
-        return;
-      }
-      
-      // 渲染预览
-      window.csvParsedRecords = parsedRecords;
-      window.csvSkippedNeutral = skippedNeutral;
-      renderCSVPreview(parsedRecords, skippedNeutral);
-      
+      const records = parseWeChatBillText(text);
+      if(!records){ toast('⚠️ 无法识别账单格式'); return; }
+      window.csvParsedRecords = records.parsed;
+      window.csvSkippedNeutral = records.skipped;
+      renderCSVPreview(records.parsed, records.skipped);
     }catch(err){
-      console.error('CSV解析错误:', err);
+      console.error('解析错误:', err);
       toast('⚠️ 解析失败: '+err.message);
     }
   };
   reader.readAsText(file, 'UTF-8');
+}
+
+// Excel 文件处理
+function handleXLSXFile(file){
+  $('csvPreview').innerHTML = '<div class="text-center py-4"><div class="spinner"></div><p class="text-xs text-muted mt-2">正在解析 Excel 账单...</p></div>';
+  
+  // 动态加载 SheetJS
+  if(typeof XLSX !== 'undefined'){
+    processXLSX(file);
+    return;
+  }
+  const script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+  script.onload = () => processXLSX(file);
+  script.onerror = () => toast('⚠️ Excel解析库加载失败，请改用CSV格式');
+  document.head.appendChild(script);
+}
+
+function processXLSX(file){
+  const reader = new FileReader();
+  reader.onload = function(ev){
+    try{
+      const wb = XLSX.read(ev.target.result, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      // 转换为文本格式再解析
+      const csvText = XLSX.utils.sheet_to_csv(ws);
+      const records = parseWeChatBillText(csvText);
+      if(!records){ toast('⚠️ 无法识别账单格式'); return; }
+      window.csvParsedRecords = records.parsed;
+      window.csvSkippedNeutral = records.skipped;
+      renderCSVPreview(records.parsed, records.skipped);
+    }catch(err){
+      console.error('Excel解析错误:', err);
+      toast('⚠️ Excel解析失败，请尝试导出CSV格式');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// 统一的微信账单文本解析（CSV和Excel共用）
+function parseWeChatBillText(text){
+  // 检测是否为微信支付格式
+  const isWeChat = text.includes('微信支付账单明细') || text.includes('微信支付账单明细列表') || (text.includes('交易时间') && text.includes('交易类型') && text.includes('交易对方'));
+  
+  const lines = text.split(/\r?\n/);
+  let dataStartIdx = 0;
+  let headers = [];
+  
+  if(isWeChat){
+    for(let i=0; i<lines.length; i++){
+      if(lines[i].includes('微信支付账单明细列表') || lines[i].includes('交易时间,交易类型')){
+        if(lines[i].includes('交易时间,交易类型')){
+          dataStartIdx = i + 1;
+          headers = lines[i].split(',').map(h=>h.trim());
+        } else {
+          dataStartIdx = i + 2;
+          if(i+1 < lines.length){
+            headers = lines[i+1].split(',').map(h=>h.trim());
+          }
+        }
+        break;
+      }
+    }
+  } else {
+    headers = lines[0].split(',').map(h=>h.trim());
+    dataStartIdx = 1;
+  }
+  
+  if(!headers.length || dataStartIdx >= lines.length){
+    return null;
+  }
+  
+  const colIdx = {
+    time: headers.findIndex(h=>h.includes('交易时间')||h.includes('时间')||h.includes('日期')),
+    type: headers.findIndex(h=>h.includes('交易类型')||h.includes('类型')),
+    counterparty: headers.findIndex(h=>h.includes('交易对方')||h.includes('对方')),
+    product: headers.findIndex(h=>h.includes('商品')||h.includes('说明')),
+    direction: headers.findIndex(h=>h.includes('收/支')||h.includes('收支')),
+    amount: headers.findIndex(h=>h.includes('金额')),
+    method: headers.findIndex(h=>h.includes('支付方式')),
+    note: headers.findIndex(h=>h.includes('备注'))
+  };
+  
+  if(colIdx.time < 0 || colIdx.amount < 0) return null;
+  
+  const parsedRecords = [];
+  const skippedNeutral = [];
+  
+  for(let i=dataStartIdx; i<lines.length; i++){
+    const line = lines[i].trim();
+    if(!line) continue;
+    const cols = parseCSVLine(line);
+    if(cols.length < 3) continue;
+    
+    const time = colIdx.time>=0 ? (cols[colIdx.time]||'').trim() : '';
+    const txType = colIdx.type>=0 ? (cols[colIdx.type]||'').trim() : '';
+    const counterparty = colIdx.counterparty>=0 ? (cols[colIdx.counterparty]||'').trim() : '';
+    const product = colIdx.product>=0 ? (cols[colIdx.product]||'').trim() : '';
+    const direction = colIdx.direction>=0 ? (cols[colIdx.direction]||'').trim() : '';
+    const amountRaw = colIdx.amount>=0 ? (cols[colIdx.amount]||'').trim() : '';
+    const method = colIdx.method>=0 ? (cols[colIdx.method]||'').trim() : '';
+    const note = colIdx.note>=0 ? (cols[colIdx.note]||'').trim() : '';
+    
+    const amount = parseCSVAmount(amountRaw);
+    if(!amount || !time) continue;
+    
+    let isExpense = direction === '支出';
+    
+    if(isNeutralTransaction(txType, counterparty, product, note, isExpense)){
+      skippedNeutral.push({time, txType, counterparty, amount, isExpense});
+      continue;
+    }
+    
+    let category;
+    if(isExpense){
+      category = matchExpenseCategory(txType, counterparty, product, note);
+    } else {
+      category = matchIncomeCategory(txType, counterparty, product, note);
+    }
+    
+    // 日期格式处理：Excel 可能导出 "2026-07-25 00:15:19" 或 "2026/07/25"
+    let dateStr = time;
+    if(time.length >= 19){
+      dateStr = time.substring(0,10).replace(/\//g,'-');
+    } else if(time.length >= 10){
+      dateStr = time.substring(0,10).replace(/\//g,'-');
+    }
+    
+    let displayNote = product && product !== '/' ? product : (note && note !== '/' ? note : '');
+    if(!displayNote && counterparty) displayNote = counterparty;
+    
+    parsedRecords.push({
+      date: dateStr,
+      fullTime: time,
+      type: isExpense ? 'expense' : 'income',
+      category: category,
+      amount: amount,
+      counterparty: counterparty,
+      txType: txType,
+      note: displayNote,
+      method: method,
+      incomeSource: !isExpense ? getIncomeSourceLabel(txType, counterparty) : ''
+    });
+  }
+  
+  if(parsedRecords.length === 0) return null;
+  return {parsed: parsedRecords, skipped: skippedNeutral};
 }
 
 // CSV行解析器（处理引号包裹的字段）
@@ -1774,11 +1798,16 @@ function getTesseract(){
   });
 }
 
-function openOCRFinance(){
+function openOCRFinance(source){
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'image/*';
-  // 不设置 capture，让用户自己选择相册或拍照
+  if(source === 'camera'){
+    input.accept = 'image/*';
+    input.capture = 'environment';
+  } else {
+    // 相册：明确指定格式，不设置 capture
+    input.accept = 'image/jpeg,image/jpg,image/png';
+  }
   input.onchange = function(e){
     const file = e.target.files[0];
     if(!file) return;
@@ -1792,11 +1821,15 @@ function openOCRFinance(){
   input.click();
 }
 
-function openOCRLive(){
+function openOCRLive(source){
   const input = document.createElement('input');
   input.type = 'file';
-  input.accept = 'image/*';
-  // 不设置 capture，让用户自己选择相册或拍照
+  if(source === 'camera'){
+    input.accept = 'image/*';
+    input.capture = 'environment';
+  } else {
+    input.accept = 'image/jpeg,image/jpg,image/png';
+  }
   input.onchange = function(e){
     const file = e.target.files[0];
     if(!file) return;
@@ -2137,7 +2170,8 @@ function renderLive(){
 function openLiveForm(){
   showModal(`
     <h3>🎬 直播打卡</h3>
-    <button class="ocr-btn mt-2" onclick="openOCRLive()">📸 截图识别收入</button>
+    <button class="ocr-btn mt-2" onclick="openOCRLive('gallery')">🖼 相册识别收入</button>
+    <button class="ocr-btn mt-2" style="background:var(--sky-light);color:var(--info)" onclick="openOCRLive('camera')">📸 拍照识别收入</button>
     <div id="ocrLiveResult"></div>
     <div class="pb-wrap mt-2"><label class="text-sm">直播时长(分钟)</label><input class="inp mt-2" type="number" id="liveDuration" value="180"></div>
     <div class="pb-wrap mt-2"><label class="text-sm">今日收入(元)</label><input class="inp mt-2" type="number" id="liveIncome" value="0"></div>
