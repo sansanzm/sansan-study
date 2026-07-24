@@ -1148,11 +1148,6 @@ function showAllTransactions(){
 function editBill(id){
   const t = store.finance.transactions.find(x => x.id === id);
   if(!t) return;
-  store.finance.accounts[t.account].balance -= (t.type==='income'?1:-1) * t.amount;
-  const plan = store.finance.savingsPlan.find(p=>p.month===t.date.substring(0,7));
-  if(plan && t.type==='income') plan.actualSavings = (plan.actualSavings||0) - t.amount;
-  store.finance.transactions = store.finance.transactions.filter(x => x.id !== id);
-  saveStore();
   window._billType = t.type;
   openBillModal(t.type, t.category, {amount: t.amount, date: t.date, account: t.account, note: t.note, editingId: id});
 }
@@ -1165,7 +1160,7 @@ function deleteBill(id){
   const plan = store.finance.savingsPlan.find(p=>p.month===t.date.substring(0,7));
   if(plan && t.type==='income') plan.actualSavings = (plan.actualSavings||0) - t.amount;
   store.finance.transactions = store.finance.transactions.filter(x => x.id !== id);
-  saveStore(); hideModal(); render(); toast('🗑️ 已删除账单');
+  saveStore(); render(); toast('🗑️ 已删除账单');
 }
 function openBillModal(type, category, prefilled){
   prefilled = prefilled || {};
@@ -1214,8 +1209,8 @@ function openBillModal(type, category, prefilled){
 }
 function numpadPress(key){
   let amt = window._billState.amount || '';
-  if(key === 'del'){ amt = amt.slice(0,-1); }
-  else if(key === 'clear'){ amt = ''; }
+  if(key === 'del' || key === 'backspace'){ amt = amt.slice(0,-1); }
+  else if(key === 'clear' || key === 'C' || key === 'c'){ amt = ''; }
   else if(key === '.'){
     if(!amt.includes('.')) amt += '.';
   }else{
@@ -1238,12 +1233,32 @@ function saveBill(){
   const date = $('billDate').value || today();
   const account = $('billAccount').value;
   const note = $('billNote').value.trim();
-  const {type, category} = state;
-  store.finance.transactions.push({id:'txn_'+Date.now(),date,type,category,amount,account,note,source:'manual'});
-  store.finance.accounts[account].balance += (type==='income'?1:-1) * amount;
-  const plan = store.finance.savingsPlan.find(p=>p.month===date.substring(0,7));
-  if(plan && type==='income') plan.actualSavings = (plan.actualSavings||0) + amount;
-  saveStore(); hideModal(); render(); toast(state.editingId ? '✅ 已修改账单' : '✅ 已记账');
+  const {type, category, editingId} = state;
+  
+  if(editingId){
+    // 编辑模式：更新已有账单
+    const idx = store.finance.transactions.findIndex(x => x.id === editingId);
+    if(idx >= 0){
+      const old = store.finance.transactions[idx];
+      // 先撤销旧账单的账户余额影响
+      store.finance.accounts[old.account].balance -= (old.type==='income'?1:-1) * old.amount;
+      const oldPlan = store.finance.savingsPlan.find(p=>p.month===old.date.substring(0,7));
+      if(oldPlan && old.type==='income') oldPlan.actualSavings = (oldPlan.actualSavings||0) - old.amount;
+      // 更新账单
+      store.finance.transactions[idx] = {...old, date, type, category, amount, account, note};
+      // 应用新的账户余额影响
+      store.finance.accounts[account].balance += (type==='income'?1:-1) * amount;
+      const newPlan = store.finance.savingsPlan.find(p=>p.month===date.substring(0,7));
+      if(newPlan && type==='income') newPlan.actualSavings = (newPlan.actualSavings||0) + amount;
+    }
+  } else {
+    // 新增模式
+    store.finance.transactions.push({id:'txn_'+Date.now(),date,type,category,amount,account,note,source:'manual'});
+    store.finance.accounts[account].balance += (type==='income'?1:-1) * amount;
+    const plan = store.finance.savingsPlan.find(p=>p.month===date.substring(0,7));
+    if(plan && type==='income') plan.actualSavings = (plan.actualSavings||0) + amount;
+  }
+  saveStore(); hideModal(); render(); toast(editingId ? '✅ 已修改账单' : '✅ 已记账');
 }
 function catLabel(c){
   const all = {...store.finance.categories.income, ...store.finance.categories.expense, ...store.finance.customCategories.income, ...store.finance.customCategories.expense};
@@ -2341,6 +2356,8 @@ function handleCatItemAction(e){
 function handleTxnAction(e){
   const delBtn = e.target.closest('.txn-delete');
   if(delBtn){
+    e.preventDefault();
+    e.stopPropagation();
     const id = delBtn.getAttribute('data-txn-delete');
     if(id) deleteBill(id);
     return;
@@ -2352,6 +2369,17 @@ function handleTxnAction(e){
   }
 }
 document.body.addEventListener('click', handleTxnAction);
+// iOS Safari touch 事件也绑定
+document.body.addEventListener('touchend', function(e){
+  const delBtn = e.target.closest('.txn-delete');
+  if(delBtn){
+    e.preventDefault();
+    e.stopPropagation();
+    const id = delBtn.getAttribute('data-txn-delete');
+    if(id) deleteBill(id);
+    return;
+  }
+}, {passive: false});
 
 document.body.addEventListener('touchstart', handleCatItemAction, {passive: true});
 
