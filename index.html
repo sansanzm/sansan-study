@@ -332,7 +332,7 @@ body{
   <button class="nav-item" data-tab="korean"><span class="ni">🇰🇷</span>韩语</button>
   <button class="nav-item" data-tab="finance"><span class="ni">💰</span>资金</button>
   <button class="nav-item" data-tab="tasks"><span class="ni">✅</span>待办</button>
-  <button class="nav-item" data-tab="live"><span class="ni">📺</span>直播</button>
+  <button class="nav-item" data-tab="live"><span class="ni">💼</span>事业</button>
   <button class="nav-item" data-tab="more"><span class="ni">⋯</span>更多</button>
 </nav>
 </div>
@@ -634,7 +634,7 @@ function renderHome(){
     </div>
     ${renderEventsCard()}
     <div class="card">
-      <div class="card-h"><span>📺 直播连播</span></div>
+      <div class="card-h"><span>💼 事业连播</span></div>
       <div style="text-align:center;padding:6px 0">
         <div style="font-size:2rem;font-weight:800;color:${store.liveStream.currentStreak>0?'var(--pink-dark)':'var(--text2)'}">${store.liveStream.currentStreak} <span style="font-size:0.8rem">天</span></div>
         <div class="text-xs text-muted">最长连播：${store.liveStream.longestStreak} 天</div>
@@ -672,7 +672,7 @@ function renderHome(){
     </div>
     <div style="display:flex;gap:8px">
       <button class="btn btn-p btn-sm" style="flex:1" onclick="setTab('finance')">💵 快速记账</button>
-      <button class="btn btn-o btn-sm" style="flex:1;border-color:var(--pink)" onclick="setTab('live')">🎬 直播打卡</button>
+      <button class="btn btn-o btn-sm" style="flex:1;border-color:var(--pink)" onclick="setTab('live')">💼 事业打卡</button>
     </div>
   `;
 }
@@ -821,7 +821,7 @@ function generateDailyTasks(){
   tasks.push({id:'t_grammar',text:`学习 ${dt.grammar} 个语法点`,done:false,carriedOver:false,module:'korean'});
   tasks.push({id:'t_listening',text:`听力练习 ${dt.listening} 分钟`,done:false,carriedOver:false,module:'korean'});
   tasks.push({id:'t_specialty',text:`服装专业词汇 ${dt.specialty} 个`,done:false,carriedOver:false,module:'korean'});
-  tasks.push({id:'t_live',text:'🎬 今日直播开播',done:false,carriedOver:false,module:'live'});
+  tasks.push({id:'t_live',text:'💼 今日事业开播',done:false,carriedOver:false,module:'live'});
   tasks.push({id:'t_finance',text:'💵 记账',done:false,carriedOver:false,module:'finance'});
   store.dailyTasks.instances[td] = tasks;
   saveStore();
@@ -1015,6 +1015,12 @@ function refreshDailyWords(){
 }
 
 function renderFinance(){
+  const view = window._financeView || 'book';
+  if(view === 'stats'){
+    $('tab-finance').innerHTML = renderFinanceStats();
+    return;
+  }
+  
   const cfg = store.finance.budgetConfigs[store.finance.budgetLevel];
   const saved = store.finance.accounts.ccb.balance;
   const savePct = cfg.totalBudget>0 ? Math.min(100, saved/cfg.totalBudget*100) : 0;
@@ -1051,6 +1057,10 @@ function renderFinance(){
       </div>
       <div class="fh-balance">${mPct.toFixed(0)}% 已完成本月留学专款目标</div>
     </div>
+    <div class="finance-view-tabs">
+      <button class="fview-tab active" onclick="switchFinanceView('book')">📝 记账</button>
+      <button class="fview-tab" onclick="switchFinanceView('stats')">📊 统计</button>
+    </div>
     <div class="finance-tabs">
       <button class="ftab ${billType==='expense'?'active':''}" onclick="switchBillType('expense')">📤 支出${expense>0?'<span class="ftab-amt">'+fmtMoney(expense)+'</span>':''}</button>
       <button class="ftab ${billType==='income'?'active':''}" onclick="switchBillType('income')">📥 收入${income>0?'<span class="ftab-amt">'+fmtMoney(income)+'</span>':''}</button>
@@ -1076,6 +1086,7 @@ function renderFinance(){
     ${renderTxnList()}
   `;
 }
+function switchFinanceView(view){ window._financeView = view; render(); }
 function switchBudget(level){ store.finance.budgetLevel=level; saveStore(); render(); toast('已切换 '+store.finance.budgetConfigs[level].name); }
 function switchBillType(type){ window._billType = type; render(); }
 function renderTxnList(){
@@ -2149,8 +2160,8 @@ function renderLive(){
 
   $('tab-live').innerHTML = `
     <div class="card">
-      <div class="card-h"><span>📺 直播打卡</span><span class="streak-badge">🔥 ${store.liveStream.currentStreak}天</span></div>
-      <button class="live-btn mt-2" onclick="openLiveForm()">🎬 ${store.liveStream.lastStreamDate===today()?'今日已打卡！':'标记今日开播'}</button>
+      <div class="card-h"><span>💼 事业打卡</span><span class="streak-badge">🔥 ${store.liveStream.currentStreak}天</span></div>
+      <button class="live-btn mt-2" onclick="openLiveForm()">🎬 ${store.liveStream.lastStreamDate===today()?'今日已打卡！':'标记今日工作'}</button>
       <div class="sg4 mt-2">
         <div class="stat-card"><div class="stat-v" style="font-size:1rem">${days}</div><div class="stat-l">本月天数</div></div>
         <div class="stat-card"><div class="stat-v" style="font-size:1rem">${hours}</div><div class="stat-l">时长(h)</div></div>
@@ -2171,11 +2182,11 @@ function renderLive(){
 }
 function openLiveForm(){
   showModal(`
-    <h3>🎬 直播打卡</h3>
+    <h3>💼 事业打卡</h3>
     <button class="ocr-btn mt-2" onclick="openOCRLive('gallery')">🖼 相册识别收入</button>
     <button class="ocr-btn mt-2" style="background:var(--sky-light);color:var(--info)" onclick="openOCRLive('camera')">📸 拍照识别收入</button>
     <div id="ocrLiveResult"></div>
-    <div class="pb-wrap mt-2"><label class="text-sm">直播时长(分钟)</label><input class="inp mt-2" type="number" id="liveDuration" value="180"></div>
+    <div class="pb-wrap mt-2"><label class="text-sm">工作时长(分钟)</label><input class="inp mt-2" type="number" id="liveDuration" value="180"></div>
     <div class="pb-wrap mt-2"><label class="text-sm">今日收入(元)</label><input class="inp mt-2" type="number" id="liveIncome" value="0"></div>
     <div class="pb-wrap mt-2"><label class="text-sm">峰值观众</label><input class="inp mt-2" type="number" id="livePeak" value="0"></div>
     <div class="pb-wrap mt-2"><label class="text-sm">新增粉丝</label><input class="inp mt-2" type="number" id="liveFollowers" value="0"></div>
@@ -2198,12 +2209,12 @@ function submitLive(){
   store.liveStream.currentStreak = streak;
   if(streak > store.liveStream.longestStreak) store.liveStream.longestStreak = streak;
   if(income>0){
-    store.finance.transactions.push({id:'txn_live_'+Date.now(),date:td,type:'income',category:'live_stream',amount:income,account:'wechat',note:'直播收入',source:'live'});
+    store.finance.transactions.push({id:'txn_live_'+Date.now(),date:td,type:'income',category:'live_stream',amount:income,account:'wechat',note:'事业收入',source:'live'});
     store.finance.accounts.wechat.balance += income;
     const plan = store.finance.savingsPlan.find(p=>p.month===currentMonth());
     if(plan) plan.actualSavings = (plan.actualSavings||0) + income;
   }
-  saveStore(); hideModal(); render(); toast('🎬 直播打卡！连播 '+streak+' 天');
+  saveStore(); hideModal(); render(); toast('💼 事业打卡！连播 '+streak+' 天');
 }
 function toggleLiveReminder(){
   store.liveStream.reminder.enabled = !store.liveStream.reminder.enabled;
@@ -2268,8 +2279,8 @@ function renderMore(){
       <div class="card">
         <div class="card-h"><span>⚙️ 设置</span></div>
         <div class="pb-wrap"><label class="text-sm">目标入学日期</label><input class="inp mt-2" type="date" id="setTargetDate" value="${store.userProfile.targetDate}"></div>
-        <div class="pb-wrap mt-2"><label class="text-sm">月度直播时长目标(h)</label><input class="inp mt-2" type="number" id="setLiveHours" value="${store.liveStream.goals.monthlyHours}"></div>
-        <div class="pb-wrap mt-2"><label class="text-sm">月度直播收入目标(元)</label><input class="inp mt-2" type="number" id="setLiveIncome" value="${store.liveStream.goals.monthlyIncome}"></div>
+        <div class="pb-wrap mt-2"><label class="text-sm">月度工作时长目标(h)</label><input class="inp mt-2" type="number" id="setLiveHours" value="${store.liveStream.goals.monthlyHours}"></div>
+        <div class="pb-wrap mt-2"><label class="text-sm">月度事业收入目标(元)</label><input class="inp mt-2" type="number" id="setLiveIncome" value="${store.liveStream.goals.monthlyIncome}"></div>
         <button class="btn btn-p btn-block mt-2" onclick="saveSettings()">💾 保存设置</button>
         <button class="btn btn-p btn-block mt-3" onclick="exportData()">📤 导出备份JSON</button>
         <button class="btn btn-o btn-block mt-2" onclick="importData()">📥 导入备份JSON</button>
