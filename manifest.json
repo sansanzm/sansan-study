@@ -1,21 +1,21 @@
 {
   "name": "叁叁留学",
   "short_name": "叁叁留学",
-  "start_url": "/sansan-study/",
-  "scope": "/sansan-study/",
+  "start_url": "https://sansanzm.github.io/sansan-study/index.html",
+  "scope": "https://sansanzm.github.io/sansan-study/",
   "display": "standalone",
   "background_color": "#FAF8F9",
   "theme_color": "#FFB5C2",
   "orientation": "portrait",
   "icons": [
     {
-      "src": "icon-192.png",
+      "src": "https://sansanzm.github.io/sansan-study/icon-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "icon-512.png",
+      "src": "https://sansanzm.github.io/sansan-study/icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
