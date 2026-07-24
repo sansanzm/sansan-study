@@ -1445,7 +1445,7 @@ function openCSVImport(){
       支持微信支付官方导出的CSV账单格式<br>
       自动识别分类 · 过滤中性流水 · 可手动修改
     </p>
-    <input type="file" accept=".csv" id="csvFile" class="inp">
+    <input type="file" accept=".csv,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" id="csvFile" class="inp">
     <div id="csvPreview" class="mt-2" style="max-height:50vh;overflow-y:auto"></div>
   `, ()=>{
     $('csvFile').addEventListener('change', handleCSVFile);
@@ -1457,9 +1457,11 @@ function handleCSVFile(e){
   const reader = new FileReader();
   reader.onload = function(ev){
     try{
-      const text = ev.target.result;
-      // 检测是否为微信支付CSV格式（查找特征分隔符）
-      const isWeChat = text.includes('微信支付账单明细') || text.includes('微信支付账单明细列表');
+      let text = ev.target.result;
+      // 去除 UTF-8 BOM（微信支付CSV可能带BOM头）
+      if(text.charCodeAt(0) === 0xFEFF) text = text.substring(1);
+      // 检测是否为微信支付CSV格式（查找特征分隔符或关键列名）
+      const isWeChat = text.includes('微信支付账单明细') || text.includes('微信支付账单明细列表') || (text.includes('交易时间') && text.includes('交易类型') && text.includes('交易对方'));
       
       const lines = text.split(/\r?\n/);
       let dataStartIdx = 0;
@@ -1776,7 +1778,7 @@ function openOCRFinance(){
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.capture = 'environment';
+  // 不设置 capture，让用户自己选择相册或拍照
   input.onchange = function(e){
     const file = e.target.files[0];
     if(!file) return;
@@ -1794,7 +1796,7 @@ function openOCRLive(){
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'image/*';
-  input.capture = 'environment';
+  // 不设置 capture，让用户自己选择相册或拍照
   input.onchange = function(e){
     const file = e.target.files[0];
     if(!file) return;
