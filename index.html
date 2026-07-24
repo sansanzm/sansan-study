@@ -836,19 +836,24 @@ function toggleTodayTask(id){
   const tasks = store.dailyTasks.instances[td] || [];
   const t = tasks.find(x=>x.id===id);
   if(t){ 
+    let cbPos = null;
+    if(!t.done){
+      const cb = document.querySelector('.task-cb[onclick*="'+id+'"]');
+      if(cb){ const r=cb.getBoundingClientRect(); cbPos={x:r.left+r.width/2, y:r.top+r.height/2}; }
+    }
     t.done = !t.done; 
     saveStore(); 
     render();
-    if(t.done) spawnConfetti(id);
+    if(t.done && cbPos) setTimeout(()=>spawnConfettiAt(cbPos.x, cbPos.y), 50);
   }
 }
 function spawnConfetti(taskId){
-  // Find the checkbox element that was just clicked
-  const cb = document.querySelector(`.task-cb[onclick*="${taskId}"]`);
+  const cb = document.querySelector('.task-cb[onclick*="'+taskId+'"]');
   if(!cb) return;
   const rect = cb.getBoundingClientRect();
-  const cx = rect.left + rect.width/2;
-  const cy = rect.top + rect.height/2;
+  spawnConfettiAt(rect.left+rect.width/2, rect.top+rect.height/2);
+}
+function spawnConfettiAt(cx, cy){
   const colors = ['#FFB5C2','#FFD700','#7ED9C4','#D4A5FF','#FF9A56'];
   for(let i=0; i<18; i++){
     const p = document.createElement('div');
@@ -859,10 +864,30 @@ function spawnConfetti(taskId){
     const dx = Math.cos(angle)*dist;
     const dy = Math.sin(angle)*dist;
     const rot = (Math.random()-0.5)*720;
-    p.style.cssText = `left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;background:${colors[Math.floor(Math.random()*colors.length)]};--dx:${dx}px;--dy:${dy}px;--rot:${rot}deg`;
+    p.style.cssText = 'left:'+cx+'px;top:'+cy+'px;width:'+size+'px;height:'+size+'px;background:'+colors[Math.floor(Math.random()*colors.length)]+';--dx:'+dx+'px;--dy:'+dy+'px;--rot:'+rot+'deg;';
     document.body.appendChild(p);
     setTimeout(()=>p.remove(), 600);
   }
+  playCompleteSound();
+}
+
+// 打卡完成音效（用 Web Audio API 生成提示音）
+function playCompleteSound(){
+  try{
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.type = 'sine';
+    // 上升音效：C5 -> E5
+    osc.frequency.setValueAtTime(523, ctx.currentTime);
+    osc.frequency.linearRampToValueAtTime(659, ctx.currentTime+0.1);
+    osc.frequency.linearRampToValueAtTime(784, ctx.currentTime+0.2);
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime+0.3);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime+0.3);
+  }catch(e){ /* 静默失败 */ }
 }
 
 function renderKorean(){
@@ -1119,6 +1144,145 @@ function renderFinance(){
   `;
 }
 function switchFinanceView(view){ window._financeView = view; render(); }
+
+// ==================== 统计页面 ====================
+let statsMonth = currentMonth();
+function renderFinanceStats(){
+  const cm = statsMonth || currentMonth();
+  const txn = store.finance.transactions.filter(t=>t.date.startsWith(cm));
+  const income = txn.filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
+  const expense = txn.filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+  const [y,m] = cm.split('-');
+  
+  // 月份切换
+  let html = `<div class="finance-view-tabs">
+    <button class="fview-tab" onclick="switchFinanceView('book')">📝 记账</button>
+    <button class="fview-tab active" onclick="switchFinanceView('stats')">📊 统计</button>
+  </div>
+  <div class="stats-month-picker">
+    <button onclick="changeStatsMonth(-1)">◀</button>
+    <span class="cur-month">${y}年${parseInt(m)}月</span>
+    <button onclick="changeStatsMonth(1)">▶</button>
+  </div>`;
+  
+  // 收支结余卡片
+  html += `<div class="stats-summary">
+    <div class="ss-item"><div class="ss-label">支出</div><div class="ss-val exp">${fmtMoney(expense)}</div></div>
+    <div class="ss-item"><div class="ss-label">收入</div><div class="ss-val inc">${fmtMoney(income)}</div></div>
+    <div class="ss-item"><div class="ss-label">结余</div><div class="ss-val" style="color:${income-expense>=0?'var(--success)':'var(--danger)'}">${fmtMoney(income-expense)}</div></div>
+  </div>`;
+  
+  // 按日柱状图
+  html += renderDayChart(cm, txn);
+  
+  // 分类饼图
+  html += renderCategoryChart(txn);
+  
+  return html;
+}
+
+function changeStatsMonth(delta){
+  const d = new Date(statsMonth+'-01');
+  d.setMonth(d.getMonth()+delta);
+  statsMonth = d.toISOString().substring(0,7);
+  render();
+}
+
+function renderDayChart(month, txn){
+  const d = new Date(month+'-01');
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  const today = new Date();
+  const todayStr = today.toISOString().substring(0,10);
+  
+  // 按天汇总
+  const dayMap = {};
+  for(let i=1; i<=daysInMonth; i++){
+    const ds = month+'-'+i.toString().padStart(2,'0');
+    dayMap[ds] = {expense:0, income:0};
+  }
+  txn.forEach(t=>{
+    if(dayMap[t.date]){
+      if(t.type==='expense') dayMap[t.date].expense += t.amount;
+      else dayMap[t.date].income += t.amount;
+    }
+  });
+  
+  const days = Object.keys(dayMap).sort();
+  const maxVal = Math.max(1, ...days.map(d=>dayMap[d].expense));
+  
+  let html = `<div class="stats-card"><div class="stats-card-h"><span>📅 按日支出</span></div>`;
+  html += `<div class="bar-chart">`;
+  days.forEach(ds=>{
+    const dayNum = parseInt(ds.split('-')[2]);
+    const val = dayMap[ds].expense;
+    const h = Math.max(2, (val/maxVal)*110);
+    const isToday = ds === todayStr;
+    html += `<div class="bar" onclick="toast('${ds} 支出 ¥${val.toFixed(2)}')">
+      <div class="bar-fill" style="height:${h}px;background:${isToday?'linear-gradient(to top,var(--pink-dark),var(--pink))':'linear-gradient(to top,var(--pink),var(--pink-light))'}"></div>
+      <div class="bar-day" style="color:${isToday?'var(--pink-dark)':'var(--text2)'};font-weight:${isToday?'800':'400'}">${dayNum}</div>
+    </div>`;
+  });
+  html += `</div></div>`;
+  return html;
+}
+
+function renderCategoryChart(txn){
+  const expenseTxn = txn.filter(t=>t.type==='expense');
+  const totalExpense = expenseTxn.reduce((s,t)=>s+t.amount,0);
+  
+  // 按分类汇总
+  const catMap = {};
+  expenseTxn.forEach(t=>{
+    if(!catMap[t.category]) catMap[t.category] = 0;
+    catMap[t.category] += t.amount;
+  });
+  
+  const allCats = {...store.finance.categories.expense, ...store.finance.customCategories.expense};
+  const ranked = Object.entries(catMap).sort((a,b)=>b[1]-a[1]);
+  
+  // 饼图颜色
+  const colors = ['#FFB5C2','#FFD700','#7ED9C4','#D4A5FF','#FF9A56','#87CEEB','#FFDAB9','#B0E0E6','#DDA0DD','#F0E68C'];
+  
+  let html = `<div class="stats-card"><div class="stats-card-h"><span>📊 分类排���</span></div>`;
+  
+  if(ranked.length===0){
+    html += `<div class="empty-state"><p>本月暂无支出记录</p></div></div>`;
+    return html;
+  }
+  
+  // 饼图用 conic-gradient
+  let gradientParts = [];
+  let cumDeg = 0;
+  ranked.forEach(([cat,amt],i)=>{
+    const pct = totalExpense>0 ? amt/totalExpense : 0;
+    const deg = pct * 360;
+    gradientParts.push(`${colors[i%colors.length]} ${cumDeg}deg ${cumDeg+deg}deg`);
+    cumDeg += deg;
+  });
+  
+  html += `<div class="donut-wrap">
+    <div class="donut" style="background:conic-gradient(${gradientParts.join(',')})">
+      <div class="donut-inner"><div class="dn-label">总支出</div><div class="dn-val">${fmtMoney(totalExpense)}</div></div>
+    </div>
+    <div class="rank-list">`;
+  
+  ranked.forEach(([cat,amt],i)=>{
+    const catInfo = allCats[cat] || {icon:'💰',label:cat};
+    const pct = totalExpense>0 ? (amt/totalExpense*100).toFixed(1) : 0;
+    html += `<div class="rank-item">
+      <div class="rank-icon">${catInfo.icon}</div>
+      <div class="rank-info">
+        <div class="rank-name"><span>${catInfo.label}</span><span>${fmtMoney(amt)}</span></div>
+        <div class="rank-bar"><div class="rank-fill" style="width:${pct}%;background:${colors[i%colors.length]}"></div></div>
+      </div>
+      <div class="rank-pct">${pct}%</div>
+    </div>`;
+  });
+  
+  html += `</div></div></div>`;
+  return html;
+}
+
 function switchBudget(level){ store.finance.budgetLevel=level; saveStore(); render(); toast('已切换 '+store.finance.budgetConfigs[level].name); }
 function switchBillType(type){ window._billType = type; render(); }
 function renderTxnList(){
