@@ -275,7 +275,7 @@ body{
 .txn-list-card .tlh-filter{font-size:0.7rem;color:var(--text2);background:var(--border);padding:4px 10px;border-radius:12px;border:none;cursor:pointer}
 .txn-day{margin-bottom:14px}
 .txn-day:last-child{margin-bottom:0}
-.txn-day-h{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px;font-size:0.75rem;font-weight:600;color:var(--text2)}
+.txn-day-h{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border);margin-bottom:8px;font-size:0.75rem;font-weight:600;color:var(--text2);cursor:pointer}
 .txn-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:0.85rem;position:relative;user-select:none;-webkit-user-select:none;cursor:pointer;touch-action:manipulation}
 .txn-row:active{background:var(--pink-light);border-radius:8px}
 .txn-row:last-child{border-bottom:none}
@@ -310,6 +310,8 @@ body{
 .empty-state{text-align:center;padding:24px 12px;color:var(--text2)}
 .empty-state .icon{font-size:2.5rem;margin-bottom:8px}
 .empty-state p{font-size:0.78rem}
+.confetti-particle{position:fixed;pointer-events:none;z-index:9999;border-radius:50%;animation:confetti-burst 0.6s ease-out forwards}
+@keyframes confetti-burst{0%{transform:translate(0,0) scale(1) rotate(0deg);opacity:1}100%{transform:translate(var(--dx),var(--dy)) scale(0) rotate(var(--rot));opacity:0}}
 </style>
 </head>
 <body>
@@ -386,6 +388,9 @@ function showModal(html, onOpen){
 function hideModal(){
   $('modal-overlay').classList.remove('show');
   $('modal-content').innerHTML = '';
+}
+function hapticFeedback(){
+  try { navigator.vibrate(10); } catch(e){}
 }
 
 // ==================== 数据存储 ====================
@@ -830,7 +835,34 @@ function toggleTodayTask(id){
   const td = today();
   const tasks = store.dailyTasks.instances[td] || [];
   const t = tasks.find(x=>x.id===id);
-  if(t){ t.done = !t.done; saveStore(); render(); }
+  if(t){ 
+    t.done = !t.done; 
+    saveStore(); 
+    render();
+    if(t.done) spawnConfetti(id);
+  }
+}
+function spawnConfetti(taskId){
+  // Find the checkbox element that was just clicked
+  const cb = document.querySelector(`.task-cb[onclick*="${taskId}"]`);
+  if(!cb) return;
+  const rect = cb.getBoundingClientRect();
+  const cx = rect.left + rect.width/2;
+  const cy = rect.top + rect.height/2;
+  const colors = ['#FFB5C2','#FFD700','#7ED9C4','#D4A5FF','#FF9A56'];
+  for(let i=0; i<18; i++){
+    const p = document.createElement('div');
+    p.className = 'confetti-particle';
+    const size = 3 + Math.random()*3;
+    const angle = Math.random()*Math.PI*2;
+    const dist = 20 + Math.random()*30;
+    const dx = Math.cos(angle)*dist;
+    const dy = Math.sin(angle)*dist;
+    const rot = (Math.random()-0.5)*720;
+    p.style.cssText = `left:${cx}px;top:${cy}px;width:${size}px;height:${size}px;background:${colors[Math.floor(Math.random()*colors.length)]};--dx:${dx}px;--dy:${dy}px;--rot:${rot}deg`;
+    document.body.appendChild(p);
+    setTimeout(()=>p.remove(), 600);
+  }
 }
 
 function renderKorean(){
@@ -1069,12 +1101,12 @@ function renderFinance(){
       <div class="cat-grid">
         ${catKeys.map(k=>{
           const c = cats[k];
-          return `<div class="cat-item" onclick="openBillModal('${billType}','${k}')">
+          return `<div class="cat-item" onclick="hapticFeedback();openBillModal('${billType}','${k}')">
             <div class="cat-icon">${c.icon}</div>
             <div class="cat-label">${c.label}</div>
           </div>`;
         }).join('')}
-        <div class="cat-item add" onclick="openCategoryManager()">
+        <div class="cat-item add" onclick="hapticFeedback();openCategoryManager()">
           <div class="cat-icon">+</div>
           <div class="cat-label">管理</div>
         </div>
@@ -1104,15 +1136,24 @@ function renderTxnList(){
   const groups = {};
   recent.forEach(t => { if(!groups[t.date]) groups[t.date] = []; groups[t.date].push(t); });
   const days = ['日','一','二','三','四','五','六'];
+  const sortedDates = Object.keys(groups).sort((a,b)=>b.localeCompare(a));
+  const todayDate = today();
+  const sevenDaysAgo = new Date(); sevenDaysAgo.setDate(sevenDaysAgo.getDate()-6);
+  const sevenDaysAgoStr = `${sevenDaysAgo.getFullYear()}-${String(sevenDaysAgo.getMonth()+1).padStart(2,'0')}-${String(sevenDaysAgo.getDate()).padStart(2,'0')}`;
   return `<div class="txn-list-card">
-    <div class="tlh"><span class="tlh-title">📜 近30天账单</span><button class="tlh-filter" onclick="showAllTransactions()">查看全部</button></div>
-    ${Object.keys(groups).sort((a,b)=>b.localeCompare(a)).map(date => {
+    <div class="tlh"><span class="tlh-title">📜 近30天账单</span><button class="tlh-filter" onclick="hapticFeedback();showAllTransactions()">查看全部</button></div>
+    ${sortedDates.map((date, idx) => {
       const d = new Date(date);
       const dayLabel = `${d.getMonth()+1}月${d.getDate()}日 周${days[d.getDay()]}`;
       const dayIncome = groups[date].filter(t=>t.type==='income').reduce((s,t)=>s+t.amount,0);
       const dayExpense = groups[date].filter(t=>t.type==='expense').reduce((s,t)=>s+t.amount,0);
+      const isRecent7 = date >= sevenDaysAgoStr;
       return `<div class="txn-day">
-        <div class="txn-day-h"><span>${dayLabel}</span><span>${dayExpense>0?'支出 '+fmtMoney(dayExpense):''}${dayIncome>0?(dayExpense>0?' · ':'')+'收入 '+fmtMoney(dayIncome):''}</span></div>
+        <div class="txn-day-h" onclick="hapticFeedback();toggleTxnDay(this)">
+          <span>${isRecent7 ? '▼' : '▶'} ${dayLabel}</span>
+          <span>${dayExpense>0?'支出 '+fmtMoney(dayExpense):''}${dayIncome>0?(dayExpense>0?' · ':'')+'收入 '+fmtMoney(dayIncome):''}</span>
+        </div>
+        <div class="txn-day-content" style="${isRecent7 ? '' : 'display:none'}">
         ${groups[date].map(t => {
           const cat = getCategories(t.type)[t.category] || {icon:'💰', label:t.category};
           const meta = t.note ? t.note : (t.account==='wechat'?'微信':t.account==='ccb'?'建行留学专款':'工行日常');
@@ -1124,13 +1165,26 @@ function renderTxnList(){
             </div>
             <div class="txn-right">
               <div class="txn-amt ${t.type==='income'?'inc':'exp'}">${t.type==='income'?'+':'-'}${fmtMoney(t.amount)}</div>
-              <button class="txn-delete" data-txn-delete="${t.id}" title="删除">🗑</button>
+              <button class="txn-delete" data-txn-delete="${t.id}" title="删除" onclick="hapticFeedback()">🗑</button>
             </div>
           </div>`;
         }).join('')}
+        </div>
       </div>`;
     }).join('')}
   </div>`;
+}
+function toggleTxnDay(header){
+  const content = header.nextElementSibling;
+  if(!content) return;
+  const arrow = header.querySelector('span');
+  if(content.style.display === 'none'){
+    content.style.display = '';
+    if(arrow) arrow.innerHTML = arrow.innerHTML.replace('▶','▼');
+  } else {
+    content.style.display = 'none';
+    if(arrow) arrow.innerHTML = arrow.innerHTML.replace('▼','▶');
+  }
 }
 function showAllTransactions(){
   const groups = {};
@@ -1222,6 +1276,7 @@ function openBillModal(type, category, prefilled){
   `, ()=>{ updateBillDisplay(); });
 }
 function numpadPress(key){
+  hapticFeedback();
   let amt = window._billState.amount || '';
   if(key === 'del' || key === 'backspace'){ amt = amt.slice(0,-1); }
   else if(key === 'clear' || key === 'C' || key === 'c'){ amt = ''; }
@@ -1241,6 +1296,7 @@ function updateBillDisplay(){
   el.textContent = amt ? (num ? fmtMoney(num) : amt) : '0';
 }
 function saveBill(){
+  hapticFeedback();
   const state = window._billState;
   const amount = parseFloat(state.amount);
   if(!amount || amount<=0){ toast('⚠️ 请输入金额'); return; }
@@ -2418,6 +2474,14 @@ function handleTxnAction(e){
   }
 }
 document.body.addEventListener('click', handleTxnAction);
+
+// 全局震动反馈事件委托
+document.body.addEventListener('click', function(e){
+  if(e.target.closest('button') || e.target.closest('.cat-item') || e.target.closest('.nav-item') || e.target.closest('.txn-day-h')){
+    hapticFeedback();
+  }
+});
+
 // iOS Safari touch 事件也绑定
 document.body.addEventListener('touchend', function(e){
   const delBtn = e.target.closest('.txn-delete');
